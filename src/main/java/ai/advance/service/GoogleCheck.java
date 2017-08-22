@@ -1,6 +1,7 @@
 package ai.advance.service;
 
 import ai.advance.entity.GeometryLocation;
+import ai.advance.entity.Location;
 import ai.advance.entity.PlaceCheckInput;
 import ai.advance.entity.PlaceDetail;
 import ai.advance.utils.HttpUtil;
@@ -29,6 +30,7 @@ import static java.util.stream.Collectors.toCollection;
 public class GoogleCheck {
 
     String googleSearchTextUri = "https://maps.googleapis.com/maps/api/place/textsearch/json";
+    String googleSearchDetailUri = "https://maps.googleapis.com/maps/api/place/details/json";
 
     private static final int PROCESSOR_SIZE = 5;
 
@@ -134,11 +136,11 @@ public class GoogleCheck {
                     case "OK"://成功  Use Google API to get all the input-related Place ID and parse them into a List of String
                         JSONArray array = JSONArray.parseArray(searchTextObject.getString("results"));
                         for (int i = 0; i < array.size(); i++) {
-                            PlaceDetail placeDetail = new PlaceDetail();
+                            PlaceDetail placeDetail;
                             JSONObject jsonObject = JSONObject.parseObject(JSON.toJSONString(array.get(i)));
                             if (jsonObject.getJSONArray("types").contains(input.getPlaceName())) {
-                                placeDetail.setPlaceName(jsonObject.getString("name"));
-                                placeDetail.setGeometryLocation(convertFromJSON(jsonObject));
+                                placeDetail =
+                                    googleSearchPlaceDetail(jsonObject.getString("place_id"));
                                 placeDetail.setZipCode(input.getZipCode());
                                 placeDetailList.add(placeDetail);
                             }
@@ -147,7 +149,6 @@ public class GoogleCheck {
                     case "OVER_QUERY_LIMIT"://账号到达上限，切换账号
                     case "REQUEST_DENIED":// key无效，获取下一个key
                         System.out.println("Google map search place id with invalid api key：" + currentKey);
-                        System.out.println("Status : "+ searchTextStatus);
                         continue changeKey;
                     default: //查询失败，放弃
                         return placeDetailList;
@@ -157,12 +158,63 @@ public class GoogleCheck {
         }
     }
 
+    /**
+     * 根据placeId查询 placeDetail
+     *
+     * @param placeId
+     * @return
+     */
+    @SneakyThrows
+    private PlaceDetail googleSearchPlaceDetail(String placeId) {
+        PlaceDetail placeDetail = new PlaceDetail();
+        Iterator<String> apiKeyIterator = apiKey.iterator();
+        Map<String, String> params = new HashMap<>();
+        params.put("placeid", placeId);
+
+        changeKey:
+        for (; ; ) {
+            if (apiKeyIterator.hasNext()) {
+                String currentKey = apiKeyIterator.next();
+                params.put("key", currentKey);
+                //Use Proxy to access Google
+                String result;
+                result = HttpUtil.get(googleSearchDetailUri, params);
+                JSONObject resultObject = JSONObject.parseObject(result);
+                String status = resultObject.getString("status");
+                switch (status) {
+                    case "OK"://成功  Get The Result and Convert them into the BasicCompanyDetail Entity
+                        placeDetail = new PlaceDetail();
+                        JSONObject placeObject = resultObject.getJSONObject("result");
+                        placeDetail.setPlaceName(placeObject.getString("name"));
+                        placeDetail.setGeometryLocation(convertFromJSON(placeObject));
+                        return placeDetail;
+                    case "OVER_QUERY_LIMIT": //账号到达上限，切换账号
+                    case "REQUEST_DENIED":   // key无效，获取下一个key
+                        System.out.println("Google map search place id with invalid api key：" + currentKey);
+                        System.out.println(status);
+                        continue changeKey;
+                    default:
+                        return placeDetail;
+                }
+            }
+            return placeDetail;
+        }
+    }
+
+
     private GeometryLocation convertFromJSON(JSONObject jsonObject) {
         JSONObject geometry = jsonObject.getJSONObject("geometry");
-        JSONObject location = geometry.getJSONObject("location");
+        JSONObject locationObject = geometry.getJSONObject("location");
+        JSONObject northeastViewPortObject = geometry.getJSONObject("viewport").getJSONObject("northeast");
+        JSONObject southwestViewPortObject = geometry.getJSONObject("viewport").getJSONObject("southwest");
+        Location location = locationObject.toJavaObject(Location.class);
+        Location northeastViewPort = northeastViewPortObject.toJavaObject(Location.class);
+        Location southwestViewPort = southwestViewPortObject.toJavaObject(Location.class);
+
         GeometryLocation geometryLocation = new GeometryLocation();
-        geometryLocation.setLatitude(location.getString("lat"));
-        geometryLocation.setLongitude(location.getString("lng"));
+        geometryLocation.setLocation(location);
+        geometryLocation.setNortheastViewport(northeastViewPort);
+        geometryLocation.setSouthwestViewport(southwestViewPort);
         return geometryLocation;
     }
 
@@ -171,15 +223,24 @@ public class GoogleCheck {
         String fileName = path + filename + ".csv";
         try {
             PrintWriter pw = new PrintWriter(new File(fileName));
-            String header = "Place Name,Latitude,Longitude,Zip Code";
+            String header = "Place Name,Latitude,Longitude,Northeast Viewport Latitude,Northeast Viewport Longitude," +
+                "Southwest Viewport Latitude,Southwest Viewport Longitude,Zip Code";
             StringBuilder sb = new StringBuilder();
             for (PlaceDetail placeDetail : placeDetails) {
                 GeometryLocation geometryLocation = placeDetail.getGeometryLocation();
                 sb.append(placeDetail.getPlaceName().replaceAll(",", "/"));
                 sb.append(",");
-                sb.append(geometryLocation.getLatitude());
+                sb.append(geometryLocation.getLocation().getLat());
                 sb.append(",");
-                sb.append(geometryLocation.getLongitude());
+                sb.append(geometryLocation.getLocation().getLng());
+                sb.append(",");
+                sb.append(geometryLocation.getNortheastViewport().getLat());
+                sb.append(",");
+                sb.append(geometryLocation.getNortheastViewport().getLng());
+                sb.append(",");
+                sb.append(geometryLocation.getSouthwestViewport().getLat());
+                sb.append(",");
+                sb.append(geometryLocation.getSouthwestViewport().getLng());
                 sb.append(",");
                 sb.append(placeDetail.getZipCode());
                 sb.append('\n');
@@ -251,10 +312,10 @@ public class GoogleCheck {
     @Test
     public void crawlData() {
         List<PlaceDetail> finalResultList = new ArrayList<>();
-        List<String> zipCodes = getAllIndonesiaZipCode("ZipCode.txt");
+        List<String> zipCodes = getAllIndonesiaZipCode("testZipCode.txt");
         PlaceCheckInput placeCheckInput = new PlaceCheckInput();
         int zipCodesSize = zipCodes.size();
-        placeCheckInput.setPlaceName("bus_station");
+        placeCheckInput.setPlaceName("restaurant");
         for (String zipCode : zipCodes) {
             placeCheckInput.setZipCode(zipCode);
             List<PlaceDetail> resultList = checkCompanyOnGoogle(placeCheckInput);
@@ -307,6 +368,30 @@ public class GoogleCheck {
     @Test
     public void zipCode(){
         System.out.println(getAllIndonesiaZipCode("ZipCode.txt").size());
+    }
+
+    @Test
+    public void convertTest(){
+        String result = "      {" +
+            " \"geometry\" : {\n" +
+            "         \"location\" : {\n" +
+            "            \"lat\" : -33.866651,\n" +
+            "            \"lng\" : 151.195827\n" +
+            "         },\n" +
+            "         \"viewport\" : {\n" +
+            "            \"northeast\" : {\n" +
+            "               \"lat\" : -33.8653881697085,\n" +
+            "               \"lng\" : 151.1969739802915\n" +
+            "            },\n" +
+            "            \"southwest\" : {\n" +
+            "               \"lat\" : -33.86808613029149,\n" +
+            "               \"lng\" : 151.1942760197085\n" +
+            "            }\n" +
+            "         }\n" +
+            "      }" +
+            "}";
+        JSONObject object = JSON.parseObject(result);
+        System.out.println(convertFromJSON(object));
     }
 
 }

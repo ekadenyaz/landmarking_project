@@ -9,6 +9,12 @@ import java.io.Serializable;
  */
 @Data
 public class Location implements Serializable {
-    private String latitude;
-    private String longitude;
+    /**
+     * Latitude
+     */
+    private String lat;
+    /**
+     * Longitude
+     */
+    private String lng;
 }
