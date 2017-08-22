@@ -254,7 +254,7 @@ public class GoogleCheck {
         List<String> zipCodes = getAllIndonesiaZipCode("ZipCode.txt");
         PlaceCheckInput placeCheckInput = new PlaceCheckInput();
         int zipCodesSize = zipCodes.size();
-        placeCheckInput.setPlaceName("mosque");
+        placeCheckInput.setPlaceName("bus_station");
         for (String zipCode : zipCodes) {
             placeCheckInput.setZipCode(zipCode);
             List<PlaceDetail> resultList = checkCompanyOnGoogle(placeCheckInput);
