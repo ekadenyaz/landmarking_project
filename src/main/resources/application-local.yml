@@ -1,0 +1,24 @@
+server:
+  port: 8081
+
+spring:
+  redis:
+    host: localhost
+    port: 32768
+  datasource:
+    driver-class-name: com.mysql.jdbc.Driver
+    username: root
+    password: root
+    url: jdbc:mysql://127.0.0.1:32769/advance_connect?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&connectTimeout=2000
+
+verification_code:
+  timeout: 60 # 1 minutes
+  limit:
+    interval: 3600 # 1 hour
+    attempts: 10
+
+websession_token_timeout: 15 # days
+
+jwt:
+  HMAC256:
+    key: ca19d7a73ba9e4dbf0e47bbf7c7a42d5
